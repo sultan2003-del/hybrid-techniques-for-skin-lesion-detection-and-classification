@@ -1,0 +1,70 @@
+clear; close all; clc;
+srcFiles = dir('Y:\OTHER WORKS\2024 - 2025\BUSINESS PROJECTS\OCTOMBER - 2024\TK163829 - Pipelined Structure in the Classification of Skin Lesions Based on Alexnet CNN and SVM Model With Bi-Sectional Texture Features\BASE\CODE 1\TESTDATA\*.jpg');
+Features = zeros(length(srcFiles), 6);
+for z = 1 : length(srcFiles)
+    filename = strcat('Y:\OTHER WORKS\2024 - 2025\BUSINESS PROJECTS\OCTOMBER - 2024\TK163829 - Pipelined Structure in the Classification of Skin Lesions Based on Alexnet CNN and SVM Model With Bi-Sectional Texture Features\BASE\CODE 1\TESTDATA\', srcFiles(z).name);
+    img = imread(filename);
+
+%% A. PREPROCESSING
+
+% 1. Resize RGB Image
+img_resized = imresize(img, [227 227]);
+
+% 2. CLAHE for R, G, B Channels
+R = img_resized(:, :, 1);
+G = img_resized(:, :, 2);
+B = img_resized(:, :, 3);
+
+% Apply CLAHE
+R_clahe = adapthisteq(R, 'ClipLimit', 0.01, 'NumTiles', [8 8], 'Distribution', 'rayleigh');
+G_clahe = adapthisteq(G, 'ClipLimit', 0.01, 'NumTiles', [8 8], 'Distribution', 'rayleigh');
+B_clahe = adapthisteq(B, 'ClipLimit', 0.01, 'NumTiles', [8 8], 'Distribution', 'rayleigh');
+
+% Combine CLAHE channels
+img_clahe = cat(3, R_clahe, G_clahe, B_clahe);
+
+% 3. Morphological Closing
+se = strel('disk', 7); % Structuring element
+img_closed = imclose(img_clahe, se);
+
+R1 = img_closed(:,:,1);
+G1 = img_closed(:,:,2);
+B1 = img_closed(:,:,3);
+
+R_median = medfilt2(R1); 
+G_median = medfilt2(G1);
+B_median = medfilt2(B1);
+
+% Combine median filtered channels
+img_median = cat(3, R_median, G_median, B_median);
+
+%% B. SEGMENTATION
+
+% Apply K-means clustering
+numClusters = 2; % Number of clusters (foreground and background)
+[L, ~] = imsegkmeans(img_median, numClusters); % K-means segmentation
+
+% Create a binary mask
+binary_mask = L == 1; % Assuming the lesion is in cluster 1
+
+% Apply morphological operations to clean up the segmentation
+binary_mask = imdilate(binary_mask, strel('disk', 3)); % Dilate to connect components
+binary_mask = imopen(binary_mask, strel('disk', 3)); % Remove small objects
+
+% Create the final segmented image
+segmented_color_img = img_resized;
+segmented_color_img(repmat(~binary_mask, [1 1 3])) = 0; % Set background to zero
+
+
+%% Step 3: ABCDT Feature Extraction
+
+all_features = extractFeatures(segmented_color_img, binary_mask, img_resized)
+
+
+
+    Features(z, :) = all_features;
+    srcFiles(z).name
+end
+
+save('Features.mat', 'Features');
+
