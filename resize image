@@ -1,0 +1,54 @@
+clear all;close all;clc;
+srcFiles = dir('Y:\OTHER WORKS\2024 - 2025\BUSINESS PROJECTS\OCTOMBER - 2024\TK163829 - Pipelined Structure in the Classification of Skin Lesions Based on Alexnet CNN and SVM Model With Bi-Sectional Texture Features\EXTENSION\DATASET\Melanoma\*.jpg');  % the folder in which ur images exists
+for i = 1 : length(srcFiles)
+filename = strcat('Y:\OTHER WORKS\2024 - 2025\BUSINESS PROJECTS\OCTOMBER - 2024\TK163829 - Pipelined Structure in the Classification of Skin Lesions Based on Alexnet CNN and SVM Model With Bi-Sectional Texture Features\EXTENSION\DATASET\Melanoma\',srcFiles(i).name);
+img = imread(filename);
+img = imresize(img, [299 299]);  % Resizing the image to 299x299
+
+%% Step 2: Filter each color channel
+redChannel = img(:, :, 1);
+greenChannel = img(:, :, 2);
+blueChannel = img(:, :, 3);
+
+filteredRed = medfilt2(redChannel);
+filteredGreen = medfilt2(greenChannel);
+filteredBlue = medfilt2(blueChannel);
+
+filteredRGB = cat(3, filteredRed, filteredGreen, filteredBlue);
+
+
+%% Step 3: Adjust contrast
+contrastImage = imadjust(filteredRGB, stretchlim(filteredRGB, [0.05, 0.95])); % Stretch image contrast
+
+
+%% Step 4: Convert to grayscale
+grayImage = rgb2gray(contrastImage);
+
+
+%% Step 5: Apply edge detection
+edges = edge(grayImage, 'Canny');
+
+
+%% Step 6: Dilate edges to close gaps
+dilatedEdges = imdilate(edges, strel('disk', 2));
+
+
+%% Step 7: Compute distance transform
+distanceTransform = bwdist(~dilatedEdges);
+figure;
+imshow(distanceTransform, []);
+title('Distance Transform');
+
+%% Step 8: Normalize distance transform
+normalizedDT = mat2gray(distanceTransform);
+
+
+%% Step 9: Apply watershed segmentation
+waterShedImage = watershed(normalizedDT);
+waterShedImage = label2rgb(waterShedImage); % Convert to RGB for visualization
+
+newfilename=fullfile('Y:\OTHER WORKS\2024 - 2025\BUSINESS PROJECTS\OCTOMBER - 2024\TK163829 - Pipelined Structure in the Classification of Skin Lesions Based on Alexnet CNN and SVM Model With Bi-Sectional Texture Features\EXTENSION\Segmented_Images\Melanoma\',srcFiles(i).name);
+imwrite(waterShedImage,newfilename,'png');
+end
+
+close all
