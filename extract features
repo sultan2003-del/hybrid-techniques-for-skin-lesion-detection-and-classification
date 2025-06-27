@@ -1,0 +1,37 @@
+function all_features = extractFeatures(segmented_color_img, binary_mask, img_resized)
+    % FA: Mean Intensity of the Segmented Lesion
+    FA = mean(segmented_color_img(binary_mask)); 
+    
+    % FB: Standard Deviation of Intensity of the Segmented Lesion
+    FB = std(double(img_resized(binary_mask)));
+    
+    % FC: Area of the Segmented Lesion
+    FC = sum(binary_mask(:)); 
+    
+    % FD: Eccentricity of the Segmented Lesion
+    stats = regionprops(binary_mask, 'Eccentricity');
+    FD = stats.Eccentricity; % Eccentricity value from the properties
+    
+    % Step to find maximum diameter points
+    [rows, cols] = find(binary_mask); % Get all points in the binary mask
+    P = [cols, rows]; % Create a matrix of points
+    
+    % Sample points to avoid memory issue
+    sampleIndices = randperm(size(P, 1), min(5000, size(P, 1))); % Sample up to 5000 points
+    P_sampled = P(sampleIndices, :);
+    
+    % Calculate the maximum distance points
+    d = pdist2(P_sampled, P_sampled);
+    [~, maxIndex] = max(d(:));
+    [i1, i2] = ind2sub(size(d), maxIndex);
+    P1 = P_sampled(i1, :); % First point of maximum diameter
+    P2 = P_sampled(i2, :); % Second point of maximum diameter
+    
+    % Calculate texture values along the maximum diameter line
+    texture_values = improfile(img_resized, [P1(1), P2(1)], [P1(2), P2(2)]);
+    mean_texture = mean(texture_values(:)); % FH
+    std_texture = std(double(texture_values(:))); % FL
+    
+    % Assemble all features into a single feature vector
+    all_features = [FA, FB, FC, FD, mean_texture, std_texture];
+end
