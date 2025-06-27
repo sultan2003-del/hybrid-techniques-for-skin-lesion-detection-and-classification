@@ -1,0 +1,184 @@
+clc;
+clear all;
+close all;
+close all hidden;
+warning off;
+
+%% Step 1: Load the input image
+[file, path] = uigetfile('*.*', 'Select an image');
+img = imread([path, file]);
+img = imresize(img, [299 299]);  % Resizing the image to 299x299
+figure, imshow(img);
+title('Resized Image (299x299)');
+
+%% Step 2: Filter each color channel
+redChannel = img(:, :, 1);
+greenChannel = img(:, :, 2);
+blueChannel = img(:, :, 3);
+
+filteredRed = medfilt2(redChannel);
+filteredGreen = medfilt2(greenChannel);
+filteredBlue = medfilt2(blueChannel);
+
+filteredRGB = cat(3, filteredRed, filteredGreen, filteredBlue);
+figure,
+imshow(filteredRGB);
+title('Noise Removed Image');
+
+%% Step 3: Adjust contrast
+contrastImage = imadjust(filteredRGB, stretchlim(filteredRGB, [0.05, 0.95])); % Stretch image contrast
+figure;
+imshow(contrastImage);
+title('Restored Image');
+
+%% Step 4: Convert to grayscale
+grayImage = rgb2gray(contrastImage);
+figure;
+imshow(grayImage);
+title('Grayscale Image');
+
+%% Step 5: Apply edge detection
+edges = edge(grayImage, 'Canny');
+figure;
+imshow(edges);
+title('Edge Detected Image');
+
+%% Step 6: Dilate edges to close gaps
+dilatedEdges = imdilate(edges, strel('disk', 2));
+figure;
+imshow(dilatedEdges);
+title('Dilated Edges');
+
+%% Step 7: Compute distance transform
+distanceTransform = bwdist(~dilatedEdges);
+figure;
+imshow(distanceTransform, []);
+title('Distance Transform');
+
+%% Step 8: Normalize distance transform
+normalizedDT = mat2gray(distanceTransform);
+figure;
+imshow(normalizedDT);
+title('Normalized Distance Transform');
+
+%% Step 9: Apply watershed segmentation
+waterShedImage = watershed(normalizedDT);
+waterShedImage = label2rgb(waterShedImage); % Convert to RGB for visualization
+figure;
+imshow(waterShedImage);
+title('Watershed Segmentation');
+
+
+%% Resnet50 Training and Testing
+
+matlabroot = cd;    % Dataset path
+datasetpath = fullfile(matlabroot,'Segmented_Images');   %Build full file name from parts
+imds = imageDatastore(datasetpath,'IncludeSubfolders',true,'LabelSource','foldernames');    %Datastore for image data
+
+[imdsTrain, imdsValidation] = splitEachLabel(imds,0.8,'randomized');     %Split ImageDatastore labels by proportions
+augimdsTrain = augmentedImageDatastore([299 299 3], imdsTrain, 'ColorPreprocessing', 'gray2rgb');  % Ensure all images are RGB
+augimdsValidation = augmentedImageDatastore([299 299 3], imdsValidation, 'ColorPreprocessing', 'gray2rgb');  % Convert grayscale to RGB if needed
+
+% Load the InceptionV3 pre-trained model
+net = inceptionv3;
+
+layers = [imageInputLayer([299 299 3])
+    
+    net(2:end-2) %accessing the pretrained network layers from second layer to end-3 layers
+    
+    fullyConnectedLayer(5) % modifying the fullyconnected layer with respect to classes
+    
+    softmaxLayer
+    
+    classificationLayer];
+
+
+options = trainingOptions("sgdm",...
+    "ExecutionEnvironment","auto",...
+    "InitialLearnRate",0.001,...
+    "MaxEpochs",100,...
+    "MiniBatchSize",25,...
+    "Shuffle","every-epoch",...
+    "ValidationData",augimdsValidation, ...
+    "ValidationFrequency",50,...
+    "Verbose",true, ... 
+    "Plots","training-progress");
+
+% [net, Traininfo] = trainNetwork(augimdsTrain, layers, options);  
+
+load net
+load Traininfo
+
+%% Classification
+
+[YPred,score] = classify(net,waterShedImage);
+msgbox(char(YPred))
+
+%% Accuracy
+
+accuracy = mean(Traininfo.TrainingAccuracy);
+fprintf('Accuracy of classified Model is: %0.4f\n',accuracy);
+
+%% % recall , precision , F1-score
+
+[PredictYPred, scores] = classify(net, augimdsValidation);
+YValidation = imdsValidation.Labels;
+
+% Calculate confusion matrix
+[m,order] = confusionmat(YValidation, PredictYPred);
+figure
+cm = confusionchart(m,order);
+% Calculate precision, recall, and F1 score
+precision = diag(m) ./ sum(m, 1)' * 100;
+recall = diag(m) ./ sum(m, 2) * 100;
+f1Score = 2 * (precision .* recall) ./ (precision + recall);
+
+fprintf('Precision: %.4f\n', mean(precision));
+fprintf('Recall: %.4f\n', mean(recall));
+fprintf('F1 Score: %.4f\n', mean(f1Score));
+
+%%
+YPred =char(YPred);
+if strcmp(YPred, 'Actinic Keratoses')
+    disp('Treatment Options:');
+    disp('1. Surgical excision is the primary treatment, often curative.');
+    disp('2. Topical treatments (such as 5-fluorouracil, imiquimod) and photodynamic therapy may be considered.');
+    disp('Lifestyle Recommendations:');
+    disp('1. Regular skin checks, use sunscreen, and avoid tanning beds.');
+    disp('2. Maintain a healthy diet and regular exercise routine.');
+
+elseif strcmp(YPred, 'Basal Cell Carcinoma')
+    disp('Treatment Options:');
+    disp('1. Surgical excision (Mohs surgery) is the most common approach.');
+    disp('2. Cryotherapy, topical treatments (imiquimod, fluorouracil), or radiation therapy for non-surgical candidates.');
+    disp('Lifestyle Recommendations:');
+    disp('1. Avoid excessive sun exposure and use broad-spectrum sunscreen daily.');
+    disp('2. Regular follow-ups for recurrence monitoring.');
+
+elseif strcmp(YPred, 'Benign Keratosis')
+    disp('Treatment Options:');
+    disp('1. No treatment is usually necessary unless cosmetically desired.');
+    disp('2. Options include cryotherapy, curettage, or laser therapy.');
+    disp('Lifestyle Recommendations:');
+    disp('1. Continue to monitor for changes and protect the skin from excessive sun exposure.');
+    disp('2. Regular skin check-ups with a dermatologist.');
+
+elseif strcmp(YPred, 'Melanocytic Nevi')
+    disp('Treatment Options:');
+    disp('1. Generally, no treatment is required unless changes are detected (e.g., atypical growth).');
+    disp('2. Surgical removal may be recommended if the mole appears suspicious.');
+    disp('Lifestyle Recommendations:');
+    disp('1. Perform regular self-examinations to monitor for any changes.');
+    disp('2. Use sunscreen to prevent further skin damage.');
+
+elseif strcmp(YPred, 'Melanoma')
+    disp('Treatment Options:');
+    disp('1. Surgical excision with clear margins is the first-line treatment.');
+    disp('2. Sentinel lymph node biopsy may be considered.');
+    disp('Lifestyle Recommendations:');
+    disp('1. Regular skin checks and sun protection are critical.');
+    disp('2. Maintain a balanced diet, exercise, and avoid smoking.');
+else
+    disp('Unknown Condition');
+end
+%%
